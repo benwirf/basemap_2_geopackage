@@ -1,0 +1,13 @@
+[general]
+name=Basemap 2 Geopackage
+qgisMinimumVersion=3.0
+description=Saves wms/wmts to custom tiles in a geopackage
+version=0.1
+author=Ben Wirf
+email=ben.wirf@gmail.com
+about=Create a custom tile grid and save wms/wmts data as separate rasters in a gpkg
+tracker=https://github.com/benwirf/basemap_2_geopackage/issues
+repository=https://github.com/benwirf/basemap_2_geopackage
+icon=icon.png
+experimental=True
+deprecated=False
