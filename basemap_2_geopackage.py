@@ -18,12 +18,12 @@ QgsCoordinateReferenceSystem, Qgis)
 from qgis.gui import (QgsRubberBand, QgsMapToolEmitPoint, QgsMapLayerComboBox,
 QgsProjectionSelectionWidget)
 
-from PyQt5.QtCore import Qt, QPointF, QSizeF, pyqtSignal
+from PyQt5.QtCore import Qt, QObject, QPointF, QSizeF, QMarginsF, pyqtSignal
 
 from PyQt5.QtGui import QColor, QTextDocument, QCursor, QIcon
 
 from PyQt5.QtWidgets import (QDockWidget, QWidget, QDialog, QHBoxLayout, QLabel, QLineEdit, QToolBar,
-QAction, QMenu, QSpinBox, QPushButton, QProgressBar, QMessageBox,
+QAction, QMenu, QSpinBox, QDoubleSpinBox, QAbstractSpinBox, QPushButton, QProgressBar, QMessageBox,
 QFileDialog, QGridLayout, QCheckBox)
 
 class Basemap2Geopackage:
@@ -35,7 +35,11 @@ class Basemap2Geopackage:
         self.toolbar = self.iface.pluginToolBar()
         self.folder_name = os.path.dirname(os.path.abspath(__file__))
         self.icon_path = os.path.join(self.folder_name, 'icon.png')
-        self.launch_action = QAction(QIcon(self.icon_path), 'Basemap2gpkg', self.iface.mainWindow())
+        #Moved to initGui() method on 10-1-2024
+#        self.launch_action = QAction(QIcon(self.icon_path), 'Basemap2gpkg', self.iface.mainWindow())
+#        self.launch_action.setObjectName('btnBM2GPKG')
+#        self.launch_action = QAction(QIcon(self.icon_path), 'Basemap2gpkg')
+        ######10-1-2024-END
         self.msg = QMessageBox()
         #####23-07-2021
         self.project = QgsProject().instance()
@@ -53,12 +57,18 @@ class Basemap2Geopackage:
         self.slot1 = 'Not connected'# layer added to project
         self.slot2 = 'Not connected'# layer removed from project
         
+#        print(self.launch_action)
+        
     def initGui(self):
+        #10-1-2024
+        self.launch_action = QAction(QIcon(self.icon_path), 'Basemap2gpkg', self.iface.mainWindow())
+        self.launch_action.setObjectName('btnBM2GPKG')
+        #10-1-2024
         self.extent_inputs = [c for c in self.dlg.widget.findChildren(QLineEdit)]
         self.grid_inputs = [b for b in self.dlg.widget.findChildren(QSpinBox)]
         for j in self.grid_inputs:
             j.valueChanged.connect(self.draw_visuals)
-        self.launch_action.setObjectName('btnBM2GPKG')
+        
         self.launch_action.triggered.connect(self.plugin_launched)
         self.toolbar.addAction(self.launch_action)
         #####02-08-21
@@ -79,6 +89,9 @@ class Basemap2Geopackage:
         self.dlg.dwnld_btn.clicked.connect(self.run_save_task)
         self.dlg.was_closed.connect(self.dockwidget_closed)
         self.iface.projectMenu().aboutToShow.connect(self.project_menu_opened)
+        
+        #10-1-2024
+        self.dlg.cancel_btn.setEnabled(False)
     
     def new_project_opened(self):
         self.manage_action_settings()
@@ -114,6 +127,7 @@ class Basemap2Geopackage:
             
     #######################02-08-2021##########################
     def manage_action_settings(self):
+#        self.launch_action = self.iface.mainWindow().findChild(QAction, 'btnBM2GPKG')
         if not self.dlg.isVisible():
             wms_layers = [l for l in QgsProject.instance().mapLayers().values() if l.providerType() == 'wms']
             if not wms_layers:
@@ -124,7 +138,6 @@ class Basemap2Geopackage:
                 if not self.launch_action.isEnabled():
                     self.launch_action.setEnabled(True)
                 self.launch_action.setToolTip('Save basemap to custom tiles in geopackage')
-                
     #######################02-08-2021#########################
         
     def plugin_launched(self):
@@ -253,6 +266,7 @@ class Basemap2Geopackage:
             self.project.annotationManager().addAnnotation(a)
     
     def resolution_annotation(self, rb):
+#        print(len(str(rb[1])))
         a = QgsTextAnnotation()
         a.setDocument(QTextDocument('{}m'.format(str(rb[1]))))
         a.setMarkerSymbol(None)
@@ -262,10 +276,12 @@ class Basemap2Geopackage:
         sym_lyr.setStrokeColor(QColor('Black'))
         a.setFillSymbol(sym)
         a.setFrameOffsetFromReferencePointMm(QPointF(-5, -5))
-        if len(str(rb[1])) == 2:
-            a.setFrameSizeMm(QSizeF(12, 8))
-        elif len(str(rb[1])) == 1:
-            a.setFrameSizeMm(QSizeF(9, 8))
+        # Calculate annotation frame size...
+        # (text document size plus 1mm margins)
+        doc_size = a.document().size()
+        frame_margins = QMarginsF(1.0, 1.0, 1.0, 1.0)
+        frame_size = doc_size.grownBy(frame_margins)
+        a.setFrameSize(frame_size)#14/4/2024
         a.setMapPosition(rb[0].asGeometry().boundingBox().center())
         return a
     
@@ -297,7 +313,7 @@ class Basemap2Geopackage:
 
     def create_row(self, left, bottom, cols, width, height):
         for c in range(cols):
-            self.grid_rubber_bands.append([self.make_rect(left, bottom, width, height), 5])##The (hardcoded) 5 is the problem!
+            self.grid_rubber_bands.append([self.make_rect(left, bottom, width, height), 5.0])##The (hardcoded) 5 is the problem!
             left+=width
             
     def clear_grid(self):
@@ -349,10 +365,21 @@ class Basemap2Geopackage:
                                     file_path,
                                     target_crs,
                                     overview_flag)
-            self.task.progressChanged.connect(lambda: self.dlg.prog.setValue(self.task.progress()))
+            self.task.progressChanged.connect(lambda: self.dlg.prog.setValue(int(self.task.progress())))
             self.task.currentChanged.connect(self.current_changed)
             self.task.done.connect(self.task_done)
+            #self.task.taskTerminated.connect(self.task_terminated)
+            self.task.begun.connect(lambda: self.dlg.cancel_btn.setEnabled(True))#10-21-2024
+            self.cancel_conn = self.dlg.cancel_btn.clicked.connect(self.cancel_task)#10-21-2024
+            
             QgsApplication.taskManager().addTask(self.task)
+    
+    #10-1-2024
+    def cancel_task(self):
+        self.task.cancel()
+        QObject.disconnect(self.cancel_conn)
+        self.dlg.cancel_btn.setIcon(QIcon(':images/themes/default/mIconLoading.gif'))
+        self.dlg.cancel_btn.setToolTip('Waiting for task to Terminate...')
     
     def current_changed(self, lbl_txt):
         self.dlg.prog_lbl.setText(lbl_txt)
@@ -361,10 +388,14 @@ class Basemap2Geopackage:
         self.dlg.prog.setValue(0)
         self.dlg.prog_lbl.setText('0/{}'.format(str(len(self.grid_rubber_bands))))
         if result == False:
-            self.log.logMessage('Something went wrong...')
+            self.log.logMessage('Task not completed or was cancelled!')
         else:
             self.log.logMessage('Geopackage created successfully', level=Qgis.Info)
-  
+            QObject.disconnect(self.cancel_conn)
+        #QObject.disconnect(self.cancel_conn)
+        self.dlg.cancel_btn.setEnabled(False)
+        self.dlg.cancel_btn.setIcon(QIcon(':images/themes/default/pluginDeprecated.svg'))
+        
     
     def dockwidget_closed(self):
         ####30-04
@@ -431,6 +462,9 @@ class setAOIGrid(QDockWidget):
         self.dwnld_btn = QPushButton('Download', self.widget)
         self.prog_lbl = QLabel('0/4', self.widget)
         self.prog = QProgressBar(self.widget)
+        self.cancel_btn = QPushButton(QIcon(':images/themes/default/pluginDeprecated.svg'), '', self.widget)
+        self.cancel_btn.setToolTip('Cancel Process')
+        #self.cancel_btn.setEnabled(False)
         for w in self.widget.children():
             self.layout.addWidget(w)
         self.widget.setLayout(self.layout)
@@ -444,7 +478,8 @@ class saveRasters(QgsTask):
     currentChanged = pyqtSignal(str)
     done = pyqtSignal(bool)
     def __init__(self, desc, project, grid, source, save_path, crs, build_overviews):
-        QgsTask.__init__(self, desc)
+        QgsTask.__init__(self, desc, QgsTask.CanCancel)
+#        super().__init__(desc, QgsTask.CanCancel)#10-01-2024
         self.project = project
         self.grid = grid
         self.source = source
@@ -465,6 +500,9 @@ class saveRasters(QgsTask):
             projector.setCrs(self.source.crs(), self.crs, self.project.transformContext())
             pipe.insert(2, projector)
         for current, rb in enumerate(self.grid):
+            #10-1-2024
+            if self.isCanceled():
+                return False
             self.currentChanged.emit('{}/{}'.format(str(current+1), str(len(self.grid))))
             #get extent of each grid rb and write to gpkg
             tile_rect = rb[0].asGeometry().boundingBox()
@@ -543,8 +581,10 @@ class resolutionDialog(QDialog):
         self.setGeometry(750, 300, 325, 150)
         self.setWindowTitle('Set tile download resolution')
         self.lbl1 = QLabel('Pixel size (meters):', self)
-        self.sb = QSpinBox(self)
-        self.sb.setRange(1, 99)
+        self.sb = QDoubleSpinBox(self)
+        self.sb.setRange(0.1, 100.0)
+        self.sb.setSingleStep(0.5)
+        self.sb.setStepType(QAbstractSpinBox.DefaultStepType)
         self.sb.selectAll()
         self.lbl2 = QLabel('Apply to all: ', self)
         self.cb = QCheckBox(self)
@@ -602,6 +642,10 @@ class SaveDialog(QDialog):
         file_name = QFileDialog().getSaveFileName(self.parent.iface.mainWindow(), 'Save Tiles to Geopackage', '', filter='*.gpkg')
         if file_name:
             file_path = file_name[0]
+            if len(file_path.split('.')) == 1:
+                file_path = f'{file_path}.gpkg'
+            elif len(file_path.split('.')) > 1 and file_path.split('.')[-1] != 'gpkg':
+                file_path = f'{file_path}.gpkg'
             self.le_save_path.setText(file_path)
 
 
